@@ -43,7 +43,7 @@ node update-file.js file.pdf
 
 (Note: scripts can be added as a context menu shortcut with [Custom Context Menu](https://github.com/ikas-mc/ContextMenuForWindows11?tab=readme-ov-file))
 
-### Web app
+<h3>Web app</h3>
 
 1. Install dependencies.
 
