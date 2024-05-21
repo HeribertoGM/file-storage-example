@@ -1,0 +1,163 @@
+AWSTemplateFormatVersion: 2010-09-09
+Description: ---
+Resources:
+    bookStorageS3Bucket:
+        Type: AWS::S3::Bucket
+        Properties:
+            BucketName: <s3-storage>
+            PublicAccessBlockConfiguration:
+                BlockPublicAcls: false
+                BlockPublicPolicy: false
+                IgnorePublicAcls: false
+                RestrictPublicBuckets: false
+            NotificationConfiguration:
+                LambdaConfigurations:
+                    - Event: "s3:ObjectCreated:*"
+                      Function: !GetAtt bookStorageLambdaProcFiles.Arn
+    bookStorageLambdaProcFiles:
+        Type: AWS::Lambda::Function
+        Properties:
+            Description: S3 create files triggered lambda to process files to dynamodb
+            Handler: index.handler
+            Role: !GetAtt bookStorageLambdaIAMRole.Arn
+            Runtime: nodejs18.x
+            Timeout: 300
+            MemorySize: 512
+            Code:
+                S3Bucket: <s3-lambda-templates>
+                S3Key: proc-files.zip
+            Layers:
+                - arn:aws:lambda:us-east-1:246967897635:layer:ghostscript:1
+                - arn:aws:lambda:us-east-1:246967897635:layer:image-magick:1
+    bookStorageLambdaUpdateRecord:
+        Type: AWS::Lambda::Function
+        Properties:
+            Description: Lambda used for dynamodb record update
+            Handler: index.handler
+            Role: !GetAtt bookStorageLambdaIAMRole.Arn
+            Runtime: nodejs18.x
+            Code:
+                S3Bucket: <s3-lambda-templates>
+                S3Key: update-records.zip
+    bookStorageLambdaUpdateRecordUrl:
+        Type: AWS::Lambda::Url
+        Properties:
+            AuthType: NONE
+            TargetFunctionArn: !GetAtt bookStorageLambdaUpdateRecord.Arn
+    bookStorageLambdaGetRecord:
+        Type: AWS::Lambda::Function
+        Properties:
+            Description: Lambda used for dynamodb get record
+            Handler: index.handler
+            Role: !GetAtt bookStorageLambdaIAMRole.Arn
+            Runtime: nodejs18.x
+            Code:
+                S3Bucket: <s3-lambda-templates>
+                S3Key: get-records.zip
+    bookStorageLambdaGetRecordUrl:
+        Type: AWS::Lambda::Url
+        Properties:
+            AuthType: NONE
+            TargetFunctionArn: !GetAtt bookStorageLambdaGetRecord.Arn
+    bookStorageDynamoDBTable:
+        Type: AWS::DynamoDB::Table
+        Properties:
+            TableName: "<ddb-table>"
+            BillingMode: "PROVISIONED"
+            ProvisionedThroughput:
+                ReadCapacityUnits: "5"
+                WriteCapacityUnits: "5"
+            KeySchema:
+                - AttributeName: "series"
+                  KeyType: "HASH"
+                - AttributeName: "volume"
+                  KeyType: "RANGE"
+            AttributeDefinitions:
+                - AttributeName: "series"
+                  AttributeType: "S"
+                - AttributeName: "volume"
+                  AttributeType: "N"
+    # roles and permissions
+    bookStorageLambdaProcFilesPermission:
+        Type: AWS::Lambda::Permission
+        Properties:
+            Action: "lambda:InvokeFunction"
+            FunctionName: !Ref bookStorageLambdaProcFiles
+            Principal: s3.amazonaws.com
+            SourceAccount: !Ref "AWS::AccountId"
+            SourceArn: arn:aws:s3:::<s3-storage>
+    bookStorageLambdaUpdateRecordsPermission:
+        Type: AWS::Lambda::Permission
+        Properties:
+            FunctionName: !Ref bookStorageLambdaUpdateRecord
+            FunctionUrlAuthType: NONE
+            Action: "lambda:InvokeFunctionUrl"
+            Principal: "*"
+    bookStorageLambdaGetRecordsPermission:
+        Type: AWS::Lambda::Permission
+        Properties:
+            FunctionName: !Ref bookStorageLambdaGetRecord
+            FunctionUrlAuthType: NONE
+            Action: "lambda:InvokeFunctionUrl"
+            Principal: "*"
+    bookStorageLambdaIAMRole:
+        Type: AWS::IAM::Role
+        Properties:
+            AssumeRolePolicyDocument:
+                Version: "2012-10-17"
+                Statement:
+                    - Effect: Allow
+                      Principal: { Service: [lambda.amazonaws.com] }
+                      Action: ["sts:AssumeRole"]
+            Path: /
+            ManagedPolicyArns:
+                - "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+            Policies:
+                - PolicyName: S3Policy
+                  PolicyDocument:
+                      Version: "2012-10-17"
+                      Statement:
+                          - Effect: Allow
+                            Action:
+                                - "s3:GetObject"
+                                - "s3:PutObject"
+                            Resource: arn:aws:s3:::<s3-storage>/*
+                - PolicyName: DynamoDBPolicy
+                  PolicyDocument:
+                      Version: "2012-10-17"
+                      Statement:
+                          - Effect: Allow
+                            Action:
+                                - "dynamodb:PutItem"
+                                - "dynamodb:UpdateItem"
+                                - "dynamodb:GetItem"
+                                - "dynamodb:Scan"
+                                - "dynamodb:Query"
+                            Resource: !Sub arn:aws:dynamodb:*:${AWS::AccountId}:table/books
+    bookStorageBucketPolicy:
+        Type: AWS::S3::BucketPolicy
+        Properties:
+            Bucket: !Ref bookStorageS3Bucket
+            PolicyDocument:
+                Version: 2012-10-17
+                Statement:
+                    - Action:
+                          - "s3:GetObject"
+                      Effect: Allow
+                      Resource: !Join
+                          - ""
+                          - - "arn:aws:s3:::"
+                            - !Ref bookStorageS3Bucket
+                            - /*
+                      Principal: "*"
+Outputs:
+    bookStorageLambdaUpdateRecordUrl:
+        Description: Public URL for update-records lambda
+        Value: !GetAtt bookStorageLambdaUpdateRecordUrl.FunctionUrl
+        Export:
+            Name: UpdateRecordLambdaUrl
+    bookStorageLambdaGetRecordUrl:
+        Description: Public URL for get-records lambda
+        Value: !GetAtt bookStorageLambdaGetRecordUrl.FunctionUrl
+        Export:
+            Name: GetRecordLambdaUrl
