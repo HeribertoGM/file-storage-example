@@ -53,7 +53,7 @@ npm i
 
 2. Create .env file with your get lambda endpoint
 
-```json
+```
 VITE_LAMBDA_GET_ENDPOINT = "<YOUR-URL>"
 ```
 
